@@ -1,0 +1,427 @@
+---
+title: 'Exploration 2: Description of Relationships'   # Title shown at the top of the rendered document
+author: 'Mehrdad Mohammadi'                            # Author name
+date: '`r format(Sys.Date(), "%B %d, %Y")`'            # Today’s date in Month Day, Year format (via inline R)
+
+header-includes:                                       # Extra LaTeX packages/settings for PDF rendering
+    - \usepackage[T1]{fontenc}                         # Better font encoding (handles accented characters)
+    - \usepackage{textcomp}                            # Extra text symbols (e.g., ©, €, etc.)
+    - \usepackage{fontspec}                            # Allows custom fonts (requires XeLaTeX or LuaLaTeX)
+    - \newfontfamily\unicodefont[Ligatures=TeX]{TeX Gyre Heros}   # Defines a Unicode font
+    - \newfontfamily\grouptwofont[Ligatures=TeX]{Source Code Pro} # Defines another custom font
+    - \newfontfamily\groupthreefont[Ligatures=TeX]{Courier}       # Defines a third font
+
+output:                                                # (R Markdown syntax) tells R to render PDF output
+  pdf_document:                                        # Output format: PDF document
+    number_sections: true                              # Number sections (1, 1.1, etc.)
+    fig_caption: yes                                   # Allow captions for figures
+    fig_height: 8                                      # Default figure height (inches)
+    fig_width: 8                                       # Default figure width (inches)
+    latex_engine: xelatex                              # Use XeLaTeX (needed for fontspec/custom fonts)
+    citation_package: biblatex                         # Use BibLaTeX for references and citations
+    keep_tex: true                                     # Keep the intermediate .tex file (useful for debugging)
+
+fontsize: 10pt                                         # Base font size of the document (10pt)
+geometry: margin=1in                                   # Page margins (1 inch on all sides)
+graphics: yes                                          # Ensure graphics are included
+mainfont: "Helvetica"                                  # Set main text font to Helvetica (via fontspec)
+bibliography: classbib.bib                             # Bibliography file with references
+biblio-style: "authoryear-comp,natbib"                 # Citation style (author–year format, Natbib style)
+---
+
+
+<!-- Make this document using library(rmarkdown); render("exploration2.Rmd") -->
+\input{mytexsymbols}
+
+```{r setup, echo=FALSE, results=FALSE, include=FALSE, cache=FALSE}
+library(here)
+source(here("qmd_setup.R"))
+library(tidyverse)
+```
+## Setup Chunk Notes
+
+When I ran this chunk I faced two errors:  
+
+1. **Missing file error**:  
+   R couldn’t find `qmd_setup.R`. To fix this, I created a file with this name in my project folder and left it blank for now, so the script can run without breaking.  
+
+2. **Package error**:  
+   I got the error `Error in library(tidyverse) : there is no package called 'tidyverse'`.  
+   To solve this, I ran `install.packages("tidyverse")` in the R console and then re-ran the setup chunk.  
+
+After these fixes, the chunk executed successfully. Now the tidyverse is installed and loaded, and I can use it for data manipulation and visualization in this project.
+##
+
+Useful reading:
+
+ - @berk04 on Simple Regression see Chapter 3 <https://methods-sagepub-com.proxy2.library.illinois.edu/book/mono/regression-analysis/toc> (and you might like Chapters 1 and 2, too)
+
+ - @berk2010you (especially level 1 regression)
+
+ - @kaplan2012ism[Chap 4, 6, 7, 8] Especially Chapter 8. No need to linger on models with multiple explanatory variables.
+
+ - @wilcox2012introduction[Chap 10.6](for more on varieties of robust regression like those in `lmrob`)
+
+"Thanks!" Your friend's voice sounds much calmer than it did when you last
+spoke. "My tasks this week are much less scary than engaging with long-tailed
+and zero-inflated variables like hours spent helping others and groups." When
+you ask what she is up to, she replies,"I do need some help. At a recent
+meeting we had a debate about two different statements. Can you help me by
+providing answers based in data? We got into a shouting match and only
+stopped when I mentioned the word 'data'. I don't know much
+about data. Can you help? Here are the two statements."
+
+> Support for anti-immigration populists like Trump or the UKIP party arises from anti-feminism more than nativism or or socioeconomic characteristics like income or education."
+
+> "I managed to find a survey that is representative of people in the UK."
+
+```{r readdata}
+library(foreign) ## For older Stata files
+library(readstata13)
+bes <- read.dta13("http://jakebowers.org/Data/BES2015/bes_f2f_original_v3.0.dta", convert.factors = FALSE)
+```
+## Data Import
+
+In this step, I loaded the **British Election Study 2015 face-to-face survey** dataset. At first, I got the error `there is no package called 'readstata13'`, so I installed it in the R console using `install.packages("readstata13")`. After that, I ran the chunk successfully: the dataset was imported directly from the URL with `read.dta13()` and stored in the object `bes`. I used `convert.factors = FALSE` to keep categorical variables numeric so I can recode them later. Now the BES data is ready for analysis.
+
+"And I found a
+(codebook)[http://www.jakebowers.org/Data/BES2015/BES_2015_f2f_v3.0_codebook.pdf]
+too. And have learned enough about R to investigate and even recode some
+variables. I'm sure I didn't do enough to get rid of missing values, change
+values to make the variables more meaningful, etc."
+
+```{r sometabs, results="hide"}
+## Measure binary gender
+table(bes$y09, exclude = c()) ## Male=1, Female=2 gender (41 of 49 in footer)
+bes$female <- as.numeric(bes$y09 == 2) ## make a variable called female=1 if female and 0 if not
+## Check the recode. Which is better? The table or the stopifnot() functions? Why?
+with(bes, table(female, y09, exclude = c()))
+## Notice that the use of stopifnot() is called a "unit test" (see the Bowers and Voors Revista piece)
+## If you are working with an AI you can ask it for unit tests of any code it provides you
+stopifnot(all.equal(bes$female == 1, bes$y09 == 2))
+stopifnot(all.equal(bes$female == 0, bes$y09 == 1))
+
+## Measure support for equality
+table(bes$r03, useNA = "ifany") ##  Support for equality for women (page 29 of 49), search for "R 3"
+table(bes$r03, exclude = c()) ## lower numbers less support for equality for women.
+## Give the variable an easier name to remeber and code don't know (DK) answers as
+## missing. I wonder if the DK people oppose equality? Or why they say DK?
+
+
+bes$women_equal <- with(bes, ifelse(r03 == -1, NA, r03))
+## Check the recode
+with(bes, table(women_equal, r03, exclude = c()))
+stopifnot(all.equal(bes$r03 == -1, is.na(bes$women_equal)))
+
+## Some other variables
+table(bes$Age, useNA = "ifany")
+table(bes$y01, useNA = "ifany") ## Income (37 of 49), higher=higher income bracket
+## Recode negative numbers to be missing
+bes$income <- with(bes, ifelse(y01 < 0, NA, y01))
+stopifnot(all.equal(is.na(bes$income), bes$y01 < 0))
+table(bes$j05, useNA = "ifany") ## Immigration (15 of 49)
+table(bes$education, useNA = "ifany") ## based on y 13a and y 12a
+## Create an education level variable
+## education==0 if y12a==2.
+bes <- bes %>% mutate(edlevel = case_when(
+  education == 12 ~ 1,
+  education == 10 ~ 2,
+  education == 11 ~ 2,
+  education == 7 ~ 3,
+  education == 8 ~ 3,
+  education == 3 ~ 4,
+  education == 2 ~ 4,
+  education == 1 ~ 5,
+  education == 0 ~ 0, ## keep 0 as 0
+  education == 17 ~ 1,
+  education == 15 ~ 1,
+  education == 16 ~ 2,
+  education == 14 ~ 2,
+  education == 13 ~ 3,
+  education == 5 ~ 4,
+  education == 4 ~ 4,
+  education == 18 ~ NA_real_,
+  education == 6 ~ 3,
+  education == 9 ~ 3
+))
+# edlevel 0 "No qualifications" 1 "GCSE D-G" 2 "GCSE A*-C" 3 "A-level" 4 "Undergraduate" 5 "Postgrad" 6"other"
+with(bes, table(education, edlevel, exclude = c()))
+## Convert education level into categories in case that is easier than treating
+## it as a continuous numeric variable.
+bes$edlevelF <- factor(bes$edlevel, labels = c(
+  "No qualifications",
+  "GCSE D-G", "GCSE A*-C", "A-level", "Undergraduate", "Postgrad"
+))
+with(bes, table(edlevel, edlevelF, exclude = c()))
+table(bes$b02, useNA = "ifany") ## Party voted in last election (4 of 49)
+table(bes$b04, useNA = "ifany") ## If you have voted which party would you have voted for
+## 1 if voted or would have voted for ukip
+bes$ukipvoter <- with(bes, as.numeric(ifelse(is.na(b02), b04 == 8, b02 == 7)))
+table(bes$ukipvoter, useNA = "ifany")
+table(bes$d01, useNA = "ifany") # Party ID (11 of 49)
+## UKIP and British National Party are basically the same, I think
+bes$ukip_pid <- as.numeric(bes$d01 %in% c(9, 8))
+with(bes, table(d01, ukip_pid, exclude = c()))
+```
+
+What do you think? Between these variables, and the others in the codebook, can
+you provide some evidence for or against those statements? Since this was such
+a heated discussion in our staff meeting, I'd like to see at least three ways
+to describe these two-way relationships including that least squares stuff that
+people always talk about. 
+
+## Exploring the Relationship between Income and UKIP Support
+
+In this section, I compare three different approaches to describe the relationship 
+between income (predictor) and support for UKIP (outcome). The methods are:  
+1. **Ordinary Least Squares (OLS, `lm`)**  
+2. **Local Regression (LOESS, `loess`)**  
+3. **Quantile Regression (Median, `rq`)**  
+
+Each method provides a different perspective on the data, and I will later 
+compare their strengths and weaknesses.
+
+---
+
+### 1. Ordinary Least Squares (OLS)
+
+```{r small_dat}
+small_dat <- bes %>%
+  dplyr::select(
+    ukipvoter, income, women_equal, edlevel,
+    edlevelF, j05, ukip_pid, Age
+  ) %>%
+  na.omit()
+
+# OLS regression
+lm_fit <- lm(ukipvoter ~ income, data = small_dat)
+summary(lm_fit)
+
+# Plot with regression line
+ggplot(small_dat, aes(x = income, y = ukipvoter)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  labs(title = "OLS: UKIP Support vs. Income",
+       x = "Income",
+       y = "UKIP Voter (0/1)")
+# LOESS regression (local smoother)
+ggplot(small_dat, aes(x = income, y = ukipvoter)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "loess", se = FALSE, color = "red", span = 0.75) +
+  labs(title = "LOESS: UKIP Support vs. Income",
+       x = "Income",
+       y = "UKIP Voter (0/1)")
+
+# install.packages("robustbase") # run once in Console if not installed
+library(robustbase)
+
+lmrob_fit <- lmrob(ukipvoter ~ income, data = small_dat)
+summary(lmrob_fit)
+
+# Plot
+ggplot(small_dat, aes(x = income, y = ukipvoter)) +
+  geom_point(alpha = 0.3) +
+  geom_abline(intercept = lmrob_fit$coefficients[1],
+              slope = lmrob_fit$coefficients[2],
+              color = "purple") +
+  labs(title = "Robust Regression (lmrob): UKIP Support vs. Income",
+       x = "Income",
+       y = "UKIP Voter (0/1)")
+
+
+
+```
+
+
+I'll need you to justify the weaknesses and strengths
+of the tactics you choose to use. And, especially for the least squares
+description, can you please help me understand why it is called least squares
+and why I should care about least squares versus most squares or least
+something else?  
+
+### Comparison of Methods: Why Least Squares and Alternatives?
+
+The **Ordinary Least Squares (OLS, `lm`)** method is called "least squares" because it chooses the line that minimizes the *sum of squared residuals* (SSR), where each residual is the difference between the observed value and the predicted value. By squaring and then summing these residuals, OLS ensures that large errors are penalized more heavily. The "least" in least squares comes from the fact that the chosen line makes this sum as small as possible. We care about this approach because it provides a simple, closed-form solution with interpretable coefficients, but it can be heavily distorted by outliers.
+
+The **LOESS method** provides a flexible, local fit to the data. Instead of assuming the relationship is strictly linear, LOESS fits many small regressions in local neighborhoods of the data. This makes it useful for detecting nonlinear patterns. Its weakness, however, is that it does not provide a single slope coefficient that is easy to interpret, and it can overfit if the smoothing parameter is not chosen carefully.
+
+The **Robust Regression (e.g., `lmrob` or `rlm`)** approach adjusts the fitting process so that outliers have less influence. This produces more stable results when data contains extreme values or violations of OLS assumptions. The tradeoff is that the method is less familiar and can be harder to explain to non-technical audiences.
+
+**In summary:** OLS is fast and standard but sensitive to outliers, LOESS is flexible but less interpretable, and robust regression is stable against outliers but less widely used. Comparing these approaches shows whether the observed relationship is consistent across methods or depends on strict assumptions.
+
+
+Right now, we just want to describe relationships so please
+don't show me standard errors, $p$-values, confidence intervals, or posterior
+density intervals (this also means that "homoskedasticity" and
+"heteroskedasticity" and "statistical power" and "precision" and "efficiency"
+and "normality" let alone "unbiased", "controlled false positive rate",
+"power", "consistency" are also words I don't need to hear). I really just want
+to know about **relationships** in the data at hand. Mostly these are
+represented by the **coefficients** of different data models/line
+fitters/smoothers.
+
+I found R commands like `lm`, `loess`, `lmrob` (in the robustbase package),
+`rlm` (in the MASS package), `rq` ( in the quantreg package) as ways to
+summarize two dimensional relationships.
+
+
+
+I'm particularly confused about "least squares". A friend sent me some code
+that she claims "does least squares" but I'm not even sure what that means or
+why I should care. I also thought that you could find the least squares
+solution in one line rather than needing a whole function. 
+
+
+```{r}
+sum_sq_resids <- function(a, b, y, z) {
+  # a is a scalar numeric (a single number)
+  # b is a scalar numeric (a single number)
+  # y is a vector numeric
+  # z is a vector numeric
+  yhat <- a + b * z
+  ehat <- y - yhat
+  thessr <- sum(ehat^2)
+  return(thessr)
+}
+
+## a has to be between 0 and 1, b also should be between 0 and 1.
+## a=mean of ukipvoter when income=0 or proportion of ukipvoter when income=0
+## b=difference in proportion of ukipvoter between income=0 and income=1. (or
+## any 1 unit difference)
+
+## Is this the least squares solution?
+sum_sq_resids(a = .1, b = .12, y = small_dat$ukipvoter, z = small_dat$income)
+## Or this?
+sum_sq_resids(a = 0, b = .2, y = small_dat$ukipvoter, z = small_dat$income)
+
+possible_solutions <- expand_grid(a = seq(-1, 1, .01), b = seq(-1, 1, .01))
+
+library(purrr)
+res <- pmap_dbl(possible_solutions, .f = function(a, b) {
+  sum_sq_resids(a = a, b = b, y = small_dat$ukipvoter, z = small_dat$income)
+})
+possible_solutions$ssr <- res
+
+## The lowest sum of squared residuals that we tried:
+## So does this mean that the difference in ukip voting for each unit of the
+## income scale is 0?
+filter(possible_solutions, ssr == min(ssr))
+
+### Another way to do the previous:
+
+ssr_results <- matrix(NA, ncol = 3, nrow = nrow(possible_solutions))
+colnames(ssr_results) <- c("a", "b", "ssr")
+for (i in seq_len(nrow(ssr_results))) {
+  a <- possible_solutions$a[i]
+  b <- possible_solutions$b[i]
+  ssr_results[i, "ssr"] <- sum_sq_resids(a = a, b = b, y = small_dat$ukipvoter, z = small_dat$income)
+  ssr_results[i, c("a", "b")] <- c(a, b)
+}
+head(ssr_results)
+str(ssr_results)
+class(ssr_results)
+row_of_min_ssr <- which.min(ssr_results[, "ssr"])
+ssr_results[row_of_min_ssr, ]
+
+## Hmmm... maybe there is a better solution. Is a=.1 and b=0 really the
+## **least** one?
+
+## Lets ask R to find the lowest ssr.
+### First make a function. Here I am demonstrating how to document a function for replication.
+
+#' Sum of squared residuals for a linear fit
+#'
+#' Computes the sum of squared residuals (SSR) for a simple linear model
+#' y = a + b * z, where the coefficient vector x = c(a, b). The function
+#' predicts yhat from z and x, computes residuals y - yhat, and returns
+#' the scalar SSR.
+#'
+#' @param x Numeric vector of length 2 containing the intercept and slope,
+#'   in that order: c(a, b).
+#' @param y Numeric vector of observed outcomes; must be the same length as z.
+#' @param z Numeric vector of predictor values; must be the same length as y.
+#'
+#' @details
+#' This objective is commonly used in least-squares estimation where  the vector x holds
+#' the parameters a (intercept) and b (slope). The function does minimal
+#' checking and unit testing; downstream optimizers should ensure numeric inputs of
+#' compatible lengths.
+#'
+#' @return A single numeric value equal to sum((y - (x[1] + x[2] * z))^2).
+#'
+sum_sq_resids_vec <- function(x, y, z) {
+  # Allowing the coefficients to be a vector
+  stopifnot(all.equal(length(y), length(z)))
+  stopifnot(all.equal(length(x), 2))
+  yhat <- x[1] + x[2] * z
+  ehat <- y - yhat
+  thessr <- sum(ehat^2)
+  return(thessr)
+}
+
+## Seems like there is a better solution that we missed.
+res2 <- optim(par = c(0, 0), fn = sum_sq_resids_vec, y = small_dat$ukipvoter, z = small_dat$income, 
+              control = list(trace = 8, reltol = 1e-10))
+res2$par
+res2$value
+
+## What about these starting values? (It depends on reltol)
+res2a <- optim(par = c(100, 100), fn = sum_sq_resids_vec, y = small_dat$ukipvoter, z = small_dat$income, 
+               control = list(trace = 2, reltol = 1e-10))
+res2a$par
+res2a$value
+
+plot_res <- ggplot(possible_solutions, aes(x = a, y = b, z = ssr)) +
+  geom_contour_filled() +
+  geom_point(aes(x = res2$par[1], y = res2$par[2]))
+print(plot_res)
+
+## The curves at each a to show the different minima
+possible_solutions %>% filter(a %in% c(-1,0,1)) %>% 
+  ggplot(aes(x=b,y=ssr,group=factor(a),color=factor(a))) + geom_point()
+
+library(plotly)
+## to see the 3d surface.
+p <- plot_ly(
+    possible_solutions, x= ~b, y= ~a, z= ~ssr,
+    type='mesh3d', intensity = ~ssr,
+    colors= colorRamp(rainbow(5))
+  )
+p
+```
+
+
+I also realized that one could calculate summaries by group but the following
+gives me lots of NAs. I also got confused by ggplot. So many error messages!
+Do error messages mean I'm a bad person? I never had error messages in my life
+until I started using R! I wonder if this means I'm not meant to use R? (I know
+that this is [fixed mindset](https://www.youtube.com/watch?v=KUWn_TJTrnU)
+thinking that I should avoid. I'm just a bit stressed about all of the negative
+feedback I'm getting from R.)
+
+```{r}
+bes_fem_group <- bes %>%
+  group_by(women_equal) %>%
+  summarize(
+    prop_ukip_vt = mean(ukipvoter,na.rm=TRUE),
+    prop_ukip_pid = mean(ukip_pid)
+  )
+bes_fem_group
+
+#ukip_fem_plot <- ggplot(data = bes_fem_group,
+#        aes(x = women_equal, y = prop_ukip_pid)) +
+#    geom_line() + ## using grouped data
+#    geom_point() +
+#    geom_smooth(data=bes,aes(x=women_equal,y=ukip_pid), ## using orig data
+#        method='loess',se=FALSE,span=.8, ## using loess
+#        method.args=list(family="symmetric",deg=1))+
+#    geom_smooth(data=bes,aes(x=women_equal,y=ukip_pid), ## using orig data
+#        method='rlm',se=FALSE)+
+#    geom_jitter(data=bes,aes(x=women_equal,y=ukip_pid),width=.1,height=.1)+
+#    stat_summary(fun="mean",color="red")
+#
+#print(ukip_fem_plot)
+
+```
+
+# References
