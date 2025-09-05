@@ -1,0 +1,271 @@
+---
+title: 'Exploration 3: Description of Relationships II'
+author: 'Mehrdad Mohammadi'
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+header-includes:
+    - \usepackage[T1]{fontenc}
+    - \usepackage{textcomp}
+    - \usepackage{fontspec}
+    - \newfontfamily\unicodefont[Ligatures=TeX]{TeX Gyre Heros}
+    - \newfontfamily\grouptwofont[Ligatures=TeX]{Source Code Pro}
+    - \newfontfamily\groupthreefont[Ligatures=TeX]{Courier}
+output:
+  pdf_document:
+    number_sections: true
+    fig_caption: yes
+    fig_height: 8
+    fig_width: 8
+    latex_engine: xelatex
+    citation_package: biblatex
+    keep_tex: true
+fontsize: 10pt
+geometry: margin=1in
+graphics: yes
+mainfont: "Helvetica"
+bibliography: classbib.bib
+biblio-style: "authoryear-comp,natbib"
+---
+
+<!-- Make this document using library(rmarkdown); render("exploration2.Rmd") -->
+\input{mytexsymbols}
+
+```{r setup, echo=FALSE, results=FALSE, include=FALSE, cache=FALSE}
+library(here)
+source(here("qmd_setup.R"))
+library(tidyverse)
+```
+
+This week we are using [Pippa Norris's amazing
+data at the level of the country](https://www.pippanorris.com/data) the DEMOCRACY CROSS-NATIONAL DATA, RELEASE 4.0 FALL 2015.
+
+
+Here is some reading that might be useful:
+- @james2013introduction \url{https://www.statlearning.com/} (Chap 3 and 7 in
+  particular)
+- \href{https://www.john-fox.ca/Companion/appendices.html}{The Fox and Weisberg
+  Textbook Nonparametric Regression Appendix}
+
+```{r}
+library(readstata13)
+
+dat <- read.dta13(
+  "https://www.dropbox.com/s/huhqag5rudwtbno/Democracy%20Cross-National%20Data%20V4.1%2009092015.dta?dl=1",
+  nonint.factors = TRUE,
+  generate.factors = TRUE
+)
+table(dat$Lang2, useNA = "ifany")
+table(dat$Lang3, useNA = "ifany")
+table(dat$Dissap, useNA = "ifany")
+```
+
+#Initial Warning (Non-Integer Factor Codes)
+R warned that some variables used floating-point codes for factors and that no labels had been assigned. This meant categorical variables were not being read properly.
+
+Fix Attempt (Custom Import Options)
+I re-ran the import using two options:
+
+nonint.factors = TRUE → allowed non-integer factor codes.
+
+generate.factors = TRUE → generated missing labels automatically.
+With these adjustments, the dataset successfully loaded.
+
+Second Warning (Duplicate Factor Levels)
+A new warning appeared, noting duplicated factor levels for three variables: Lang2, Lang3, and Dissap. R handled this automatically by generating unique labels so each level could be distinguished.
+
+Final Outcome (Clean Import)
+After these fixes, the dataset loaded correctly. The warnings were informational, not fatal errors, and the data is now ready for analysis.
+
+
+##```{r}
+#library(readstata13)
+#dat <- read.dta13("https://www.dropbox.com/s/huhqag5rudwtbno/Democracy%20Cross-National%20Data%20V4.1%2009092015.dta?dl=1")
+## Make sure each row is a state and there are no duplicates
+#stopifnot(length(unique(dat$Nation)) == nrow(dat))
+#stopifnot(all(table(dat$Nation) == 1))
+```
+
+1. Choose one continous variable as an "outcome". I'm calling it $y_i$ for
+   country $i=1 \ldots 195$ in this data set. This variable should have at
+   least 4 values and hopefully more. Please describe this variable (you can
+   use words, tables, single numbers, etc.. to describe this variable alone, in
+   one-dimension).
+
+2. Choose another variable which should cause the outcome according to some
+   theory or another. I'm calling it $z_i$ (again where $i$ indexes country).
+   (If you can state the theory, great. If not, then just an intuition about
+   why $z_i \rightarrow y_i$ will work. It is ok if you yourself don't think
+   $z_i$ should relate to $y_i$, but someone should. There should be something
+   at stake in learning about this relationship.) This variable, which I'll
+   call the "explanatory variable", should also be continuous (i.e. at least 4
+   unique values). Please describe this variable (you can use words, tables,
+   single numbers, etc.. to describe this variable alone, in
+   one-dimension).^[Notice that I'm not saying "dependent variable" or
+   "independent variable" because I don't think that $z_i$ has values that are
+   "independent" of anything in particular.]
+
+
+3. Please describe the relationship between $y_i$ and $z_i$ using both graphs
+   and at least two global linear smoothers (FYI least squares is a global
+   linear smoother). Explain why you made the choices you made. (For example,
+   if you considered a third and fourth approach to linear description, explain
+   why you didn't use those approaches and instead chose the ones that you did.
+   You can use least squares of course, or not. As you see fit given the data.)
+   Notice that these are all the countries of the world: the whole population
+   of countries. Not a sample.
+
+4. Please also describe this relationship using a non-linear, local smoother.
+   Please use 10-fold cross-validation to choose the tuning parameter(s) for
+   this smoother. Explain in your own words what cross-validation is and why
+   one would use it to choose tuning parameters in this case or in general.
+
+```{r}
+## Some examples of a tidy approach to cross-validation here using loess for my
+## local non-parametric smoother.
+## There are many other approaches online. Feel free to use them
+## if you find them easier to understand.
+
+library(modelr)
+
+small_dat <- select(dat, Nation, Politystand2014, CBINDEX)
+## remove some labels and such arriving from stata from the small data
+names(attributes(small_dat))
+attr(small_dat, "expansion.fields") <- NULL
+attr(small_dat, "data.label") <- NULL
+attr(small_dat, "val.labels") <- NULL
+attr(small_dat, "var.labels") <- NULL
+attr(small_dat, "label.table") <- NULL
+attr(small_dat, "formats") <- NULL
+attr(small_dat, "types") <- NULL
+
+## This looks promising: https://modelr.tidyverse.org/reference/crossv_mc.html
+## https://drsimonj.svbtle.com/k-fold-cross-validation-with-modelr-and-broom
+## https://www.tmwr.org/software-modeling.html
+
+## library(tidymodels) ## this looked great but wasn't sure about how to apply
+## it with loess
+## cv1 <- vfold_cv(small_dat,v=10)
+
+try_span <- function(s, f, cvobj) {
+  ## s is a span (see the loess help page)
+  ## f is the fold number (an integer)
+  ## cvobj is an object from the crossv_kfold() function
+  train_idx <- cvobj$train[[f]][["idx"]]
+  train_dat <- cvobj$train[[f]][["data"]][train_idx, ]
+  test_idx <- cvobj$test[[f]][["idx"]]
+  test_dat <- cvobj$test[[f]][["data"]][test_idx, ]
+  ## setting deg=1 and family="symmetric" but those could change
+  ## Hard coding in the y~x formula variables here for ease.
+  res <- loess(Politystand2014 ~ CBINDEX,
+    span = s, deg = 1,
+    family = "symmetric",
+    data = train_dat
+  )
+  ## Predict onto the test data
+  pred_test <- predict(res, newdata = test_dat)
+  ## How well did this approach predict the actual test data outcomes.
+  resids <- test_dat$Politystand2014 - pred_test
+  ## see also broom::augment(res,newdata=test_dat)
+  ## see also modelr::rmse(res,data=test_dat)
+  ## Calculate something very close to sum(resids^2) (mean(resids^2) =
+  ## sum(resids^2)/length(resids).
+  my_rmse <- sqrt(mean(resids^2, na.rm = TRUE))
+  return(my_rmse)
+}
+
+set.seed(12355)
+## could do this multiple time times too for different seeds
+cv1 <- crossv_kfold(small_dat, 10)
+
+## Check out span=2/3
+thermse_for_thespan <- sapply(seq_along(cv1$.id), function(thefold) {
+  try_span(s = 2 / 3, f = thefold, cvobj = cv1)
+})
+thermse_for_thespan
+mean(thermse_for_thespan)
+
+## Make into another function
+avg_rmse <- function(the_span) {
+  thermse_for_thespan <- sapply(seq_along(cv1$.id), function(thefold) {
+    try_span(s = the_span, f = thefold, cvobj = cv1)
+  })
+  thermse_for_thespan
+  mean(thermse_for_thespan)
+}
+
+avg_rmse(2/3)
+
+
+## What is the smallest rmse?
+### Grid search?
+some_s <- seq(.1, .9, .1)
+res1 <- sapply(some_s,function(s){ avg_rmse(s) })
+res1_df <- data.frame(the_rmse=res1,span=some_s)
+filter(res1_df,the_rmse==min(the_rmse))
+
+## Optimization?
+res2 <- optim(par=c(.1),fn=avg_rmse,method="L-BFGS-B",lower=.05,upper=.95,control=list(trace=10))
+res2$par
+res2$value
+
+## Fit with chosen tuning parameter:
+## final_res <- loess(Politystand2014 ~ CBINDEX,
+##     span = res2$par, deg = 1,
+##     family = "symmetric",
+##     data = dat)
+## summary(final_res)
+## preddat <- broom::augment(final_res)
+## head(preddat)
+
+library(robustbase)
+
+g <- ggplot(data=dat, aes(x=CBINDEX,y=Politystand2014))+
+    geom_point()+
+    stat_smooth(method="loess",span=res2$par,method.args=list(deg = 1, family = "symmetric"),se=FALSE,color="black") +
+    stat_smooth(method="loess",span=res2$par,method.args=list(deg = 2, family = "symmetric"),se=FALSE, col="green") +
+    stat_smooth(method="lm",se=FALSE,color="blue") +
+    stat_function(fun = mean, geom="line", color="purple")+
+    stat_smooth(method="lmrob",se=FALSE,color="orange",method.args=list(setting="KS2014"))
+
+print(g)
+
+mod1 <- loess(Politystand2014~CBINDEX,span=res2$par,deg=1,family="symmetric",data=dat)
+```
+
+5. Choose another variable that should also relate to $y_i$ and perhaps to
+   $z_i$. This variable, which I'll call it $x_i$, should have between 2 and 4
+   categories. It could be ordinal or just categorical. Please ensure that R
+   understands this variable as a factor variable. You may need to create this
+   variable yourself, for example, if you want to convert something like the
+   Policy Standardized Score into categories. Or if you just want to take a
+   variable that has few categories and convert it into a factor using
+   `factor()` or `as.factor()`. Please describe this variable (you can use
+   words, tables, single numbers, etc.. to describe this variable alone, in
+   one-dimension).
+
+6. Please describe the relationship between this variable and $y_i$ using least
+   squares. This relationship will probably involve `lm()` or
+   `estimatr::lm_robust()` to take the categorical variable can convert it into
+   a series of indicator variables with 1="in category" and 0="not in
+   category". Recall that the constant in such a summary is the mean outcome
+   for the excluded category (either least squares command will exclude one of
+   the categories) and that the other coefficients are the differences between
+   the mean outcomes of the excluded category and each other category.
+
+7. Please also describe the relationship between $y_i$ and $z_i$ conditional on
+   $x_i$. That is, if `x` is a factor variable and `y` and `z` are numeric
+   variable that are (more or less) continuous, fit and interpret the
+   coefficients (and/or predictions) from a model using the formula `y~z*x`
+   (where the `*` creates an "interaction term" between `z` and `x`. Feel free
+   to use plots to make this interpretation in addition to the coefficients.
+
+
+   <!--Maybe useful:  https://grantmcdermott.com/interaction-effects/ --> 
+   <!-- https://thomasleeper.com/margins/reference/margins.html -->
+
+
+
+I am not looking for discussion of statistical inference in this exploration.
+So, no need to talk about standard errors, p-values or confidence intervals.
+Just figuring out more or less complicated descriptions.
+
+# References
