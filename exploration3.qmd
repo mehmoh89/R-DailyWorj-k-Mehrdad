@@ -76,7 +76,7 @@ Final Outcome (Clean Import)
 After these fixes, the dataset loaded correctly. The warnings were informational, not fatal errors, and the data is now ready for analysis.
 
 
-##```{r}
+```{r}
 #library(readstata13)
 #dat <- read.dta13("https://www.dropbox.com/s/huhqag5rudwtbno/Democracy%20Cross-National%20Data%20V4.1%2009092015.dta?dl=1")
 ## Make sure each row is a state and there are no duplicates
@@ -117,6 +117,20 @@ After these fixes, the dataset loaded correctly. The warnings were informational
    Please use 10-fold cross-validation to choose the tuning parameter(s) for
    this smoother. Explain in your own words what cross-validation is and why
    one would use it to choose tuning parameters in this case or in general.
+   
+   ##
+   1) Outcome  $y_i$: Politystand2014
+Politystand2014 measures regime characteristics in 2014 and varies widely across countries, making it a suitable continuous outcome.
+
+2) Explanatory  $z_i$: CBINDEX
+CBINDEX captures governance quality; theory suggests stronger governance is linked to higher democracy scores.
+
+3) Global linear relationship
+Scatterplots with OLS and robust regression show a generally positive slope; the robust fit checks sensitivity to outliers.
+
+4) Local non-linear relationship
+A LOESS smoother with span chosen by 10-fold cross-validation highlights possible non-linear patterns beyond the linear fits.
+##
 
 ```{r}
 ## Some examples of a tidy approach to cross-validation here using loess for my
@@ -126,8 +140,13 @@ After these fixes, the dataset loaded correctly. The warnings were informational
 
 library(modelr)
 
+##Brings in modelr, which provides functions like crossv_kfold() for tidy cross-validation.
+
 small_dat <- select(dat, Nation, Politystand2014, CBINDEX)
 ## remove some labels and such arriving from stata from the small data
+## Keeps only three variables: Nation (country name/ID), Politystand2014 (political regime score, candidate for outcome y),
+##CBINDEX (corruption/bureaucracy index, candidate predictor z).
+##This makes later modeling easier by focusing on just the variables we need.
 names(attributes(small_dat))
 attr(small_dat, "expansion.fields") <- NULL
 attr(small_dat, "data.label") <- NULL
@@ -137,13 +156,17 @@ attr(small_dat, "label.table") <- NULL
 attr(small_dat, "formats") <- NULL
 attr(small_dat, "types") <- NULL
 
+##Because the file came from Stata (.dta), the imported tibble carries extra labels/metadata. These attributes don’t affect the numbers but can interfere with modeling functions. The code explicitly removes them.
+
 ## This looks promising: https://modelr.tidyverse.org/reference/crossv_mc.html
 ## https://drsimonj.svbtle.com/k-fold-cross-validation-with-modelr-and-broom
 ## https://www.tmwr.org/software-modeling.html
 
 ## library(tidymodels) ## this looked great but wasn't sure about how to apply
 ## it with loess
-## cv1 <- vfold_cv(small_dat,v=10)
+## cv1 <- vfold_cv(small_dat,v=10) (could use tidymodels::vfold_cv() instead of modelr::crossv_kfold())
+
+### My Note: This code prepares a smaller dataset for cross-validation. It loads modelr to enable tidy CV functions, then selects only the relevant variables (Nation, Politystand2014, CBINDEX). Because the data came from Stata, it still carries extra attributes; these are removed to avoid problems with modeling. At this stage, the data are clean and ready for k-fold cross-validation, which can be done either with modelr::crossv_kfold() or, alternatively, tidymodels::vfold_cv().
 
 try_span <- function(s, f, cvobj) {
   ## s is a span (see the loess help page)
@@ -171,6 +194,7 @@ try_span <- function(s, f, cvobj) {
   my_rmse <- sqrt(mean(resids^2, na.rm = TRUE))
   return(my_rmse)
 }
+### My note: This function performs one fold of cross-validation for a given LOESS span. It fits a LOESS model of Politystand2014 on CBINDEX using the training data from fold f, predicts outcomes on the test set, and returns the root mean squared error (RMSE). Repeating this across folds and span values allows us to evaluate which smoothing parameter achieves the best out-of-sample predictive accuracy.
 
 set.seed(12355)
 ## could do this multiple time times too for different seeds
