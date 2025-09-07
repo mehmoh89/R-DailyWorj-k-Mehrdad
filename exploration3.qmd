@@ -27,13 +27,26 @@ biblio-style: "authoryear-comp,natbib"
 ---
 
 <!-- Make this document using library(rmarkdown); render("exploration2.Rmd") -->
-\input{mytexsymbols}
+\input{mytexsymbols} 
+
+Loads a separate .tex file with your custom symbols/commands (probably math symbols).
 
 ```{r setup, echo=FALSE, results=FALSE, include=FALSE, cache=FALSE}
-library(here)
-source(here("qmd_setup.R"))
-library(tidyverse)
+library(here)  # helps with file paths
+source(here("qmd_setup.R")) #qmd_setup.R is a setup script meant to centralize and standardize the configuration for your Quarto/R Markdown projects. Instead of repeating the same code (like loading packages, setting plotting themes, or defining helper functions) in every .qmd file, you keep those commands in qmd_setup.R. Then, each document can simply call.
+
+library(tidyverse) # data wrangling, visualization, etc.
 ```
+- `echo=FALSE` → hides code in output.
+- `results=FALSE` → hides output results.
+- `include=FALSE` → nothing from this chunk appears in the document.
+- `cache=FALSE` → avoids caching results (runs fresh every time).
+- `library(here)` → makes file paths relative to project root.
+- `source(here("qmd_setup.R"))` → runs a custom setup script (likely sets themes, options, etc.).
+- `library(tidyverse)` → loads core R packages for data wrangling/plotting.
+
+---
+
 
 This week we are using [Pippa Norris's amazing
 data at the level of the country](https://www.pippanorris.com/data) the DEMOCRACY CROSS-NATIONAL DATA, RELEASE 4.0 FALL 2015.
@@ -156,6 +169,8 @@ attr(small_dat, "label.table") <- NULL
 attr(small_dat, "formats") <- NULL
 attr(small_dat, "types") <- NULL
 
+##These lines are cleaning the imported Stata dataset by removing unnecessary attributes so that the data behaves like a standard R object.
+
 ##Because the file came from Stata (.dta), the imported tibble carries extra labels/metadata. These attributes don’t affect the numbers but can interfere with modeling functions. The code explicitly removes them.
 
 ## This looks promising: https://modelr.tidyverse.org/reference/crossv_mc.html
@@ -168,6 +183,9 @@ attr(small_dat, "types") <- NULL
 
 ### My Note: This code prepares a smaller dataset for cross-validation. It loads modelr to enable tidy CV functions, then selects only the relevant variables (Nation, Politystand2014, CBINDEX). Because the data came from Stata, it still carries extra attributes; these are removed to avoid problems with modeling. At this stage, the data are clean and ready for k-fold cross-validation, which can be done either with modelr::crossv_kfold() or, alternatively, tidymodels::vfold_cv().
 
+small_dat <- small_dat |> tidyr::drop_na(Politystand2014, CBINDEX)
+
+
 try_span <- function(s, f, cvobj) {
   ## s is a span (see the loess help page)
   ## f is the fold number (an integer)
@@ -179,7 +197,8 @@ try_span <- function(s, f, cvobj) {
   ## setting deg=1 and family="symmetric" but those could change
   ## Hard coding in the y~x formula variables here for ease.
   res <- loess(Politystand2014 ~ CBINDEX,
-    span = s, deg = 1,
+    #span = s, deg = 1, the argument name is degree
+     span = s, degree = 1,
     family = "symmetric",
     data = train_dat
   )
