@@ -22,8 +22,8 @@ fontsize: 10pt
 geometry: margin=1in
 graphics: yes
 mainfont: "Helvetica"
-bibliography: classbib.bib
-biblio-style: "authoryear-comp,natbib"
+#bibliography: classbib.bib
+#biblio-style: "authoryear-comp,natbib"
 ---
 
 <!-- Make this document using library(rmarkdown); render("exploration2.Rmd") -->
@@ -33,7 +33,7 @@ Loads a separate .tex file with your custom symbols/commands (probably math symb
 
 ```{r setup, echo=FALSE, results=FALSE, include=FALSE, cache=FALSE}
 library(here)  # helps with file paths
-source(here("qmd_setup.R")) #qmd_setup.R is a setup script meant to centralize and standardize the configuration for your Quarto/R Markdown projects. Instead of repeating the same code (like loading packages, setting plotting themes, or defining helper functions) in every .qmd file, you keep those commands in qmd_setup.R. Then, each document can simply call.
+source(here("qmd_setup.R")) #qmd_setup.R is a setup script meant to centralize and standardize the configuration for my Quarto/R Markdown projects. Instead of repeating the same code (like loading packages, setting plotting themes, or defining helper functions) in every .qmd file, you keep those commands in qmd_setup.R. Then, each document can simply call.
 
 library(tidyverse) # data wrangling, visualization, etc.
 ```
@@ -183,8 +183,15 @@ attr(small_dat, "types") <- NULL
 
 ### My Note: This code prepares a smaller dataset for cross-validation. It loads modelr to enable tidy CV functions, then selects only the relevant variables (Nation, Politystand2014, CBINDEX). Because the data came from Stata, it still carries extra attributes; these are removed to avoid problems with modeling. At this stage, the data are clean and ready for k-fold cross-validation, which can be done either with modelr::crossv_kfold() or, alternatively, tidymodels::vfold_cv().
 
-small_dat <- small_dat |> tidyr::drop_na(Politystand2014, CBINDEX)
+small_dat <- select(dat, Nation, Politystand2014, CBINDEX)
+# remove Stata attributes …
+attr(small_dat, "types") <- NULL
 
+small_dat <- small_dat |>
+  tidyr::drop_na(Politystand2014, CBINDEX) |>
+  dplyr::filter(is.finite(CBINDEX), is.finite(Politystand2014))
+
+plot_dat <- small_dat
 
 try_span <- function(s, f, cvobj) {
   ## s is a span (see the loess help page)
@@ -196,12 +203,14 @@ try_span <- function(s, f, cvobj) {
   test_dat <- cvobj$test[[f]][["data"]][test_idx, ]
   ## setting deg=1 and family="symmetric" but those could change
   ## Hard coding in the y~x formula variables here for ease.
+  
   res <- loess(Politystand2014 ~ CBINDEX,
-    #span = s, deg = 1, the argument name is degree
-     span = s, degree = 1,
-    family = "symmetric",
-    data = train_dat
-  )
+                #span = s, deg = 1, the argument name is degree
+             span = s, degree = 1,
+             family = "symmetric",
+             data = train_dat,
+             control = loess.control(surface = "direct"))
+
   ## Predict onto the test data
   pred_test <- predict(res, newdata = test_dat)
   ## How well did this approach predict the actual test data outcomes.
@@ -247,6 +256,7 @@ filter(res1_df,the_rmse==min(the_rmse))
 
 ## Optimization?
 res2 <- optim(par=c(.1),fn=avg_rmse,method="L-BFGS-B",lower=.05,upper=.95,control=list(trace=10))
+best_span <- as.numeric(res2$par)
 res2$par
 res2$value
 
@@ -261,17 +271,26 @@ res2$value
 
 library(robustbase)
 
-g <- ggplot(data=dat, aes(x=CBINDEX,y=Politystand2014))+
+g <- ggplot(data=plot_dat, aes(x=CBINDEX,y=Politystand2014))+
     geom_point()+
-    stat_smooth(method="loess",span=res2$par,method.args=list(deg = 1, family = "symmetric"),se=FALSE,color="black") +
-    stat_smooth(method="loess",span=res2$par,method.args=list(deg = 2, family = "symmetric"),se=FALSE, col="green") +
+    stat_smooth(method = "loess", span = best_span,
+            method.args = list(degree = 1, family = "symmetric",
+                               control = loess.control(surface = "direct")),
+            se = FALSE, color = "black")+
+    stat_smooth(method="loess",span=best_span,method.args=list(degree = 2, family = "symmetric"),se=FALSE, col="green") +
     stat_smooth(method="lm",se=FALSE,color="blue") +
-    stat_function(fun = mean, geom="line", color="purple")+
+  geom_hline(yintercept = mean(dat$Politystand2014, na.rm = TRUE), color = "purple")
+    #stat_function(fun = mean, geom="line", color="purple")+
     stat_smooth(method="lmrob",se=FALSE,color="orange",method.args=list(setting="KS2014"))
 
 print(g)
 
-mod1 <- loess(Politystand2014~CBINDEX,span=res2$par,deg=1,family="symmetric",data=dat)
+mod1 <- loess(Politystand2014 ~ CBINDEX,
+              span = best_span, degree = 1,
+              family = "symmetric",
+              data = dat,
+              control = loess.control(surface = "direct"))
+
 ```
 
 5. Choose another variable that should also relate to $y_i$ and perhaps to
@@ -310,5 +329,55 @@ mod1 <- loess(Politystand2014~CBINDEX,span=res2$par,deg=1,family="symmetric",dat
 I am not looking for discussion of statistical inference in this exploration.
 So, no need to talk about standard errors, p-values or confidence intervals.
 Just figuring out more or less complicated descriptions.
+
+## Step 5: Add a categorical variable \(x_i\)
+
+For the categorical factor \(x_i\), I created a binary grouping of governance quality (`CBINDEX`). Countries below the median CBINDEX are labeled **Low governance**, and those above are **High governance**. This ensures 2 balanced categories.
+
+```{r}
+dat <- dat |>
+  dplyr::mutate(x_group = ifelse(CBINDEX < median(CBINDEX, na.rm=TRUE),
+                                 "Low governance", "High governance")) |>
+  dplyr::mutate(x_group = factor(x_group))
+
+# One-dimensional description
+table(dat$x_group, useNA="ifany")
+
+# Visualization
+ggplot(dat, aes(x_group)) +
+  geom_bar() +
+  labs(x="Governance group (x)", y="Number of countries")
+#Roughly half of the countries fall into each governance group, giving a simple categorical split suitable for interaction analysis
+```
+
+
+## Step 6: Relationship between \(x_i\) and outcome \(y_i\)
+
+#Next, I describe how democracy scores vary across governance groups. A simple least squares model shows the mean difference in `Politystand2014` between Low vs High governance groups.
+
+```{r}
+mod_x <- lm(Politystand2014 ~ x_group, data = dat)
+broom::tidy(mod_x)
+
+ggplot(dat, aes(x_group, Politystand2014)) +
+  geom_boxplot() +
+  labs(x="Governance group (x)", y="Democracy score (y)")
+  
+```
+
+## Step 7: Conditional relationship \(y \sim z * x\)
+
+Finally, I consider whether the slope of governance (`CBINDEX`) predicting democracy (`Politystand2014`) depends on the governance group (`x_group`). This is done with an interaction model.
+
+```{r}
+mod_int <- lm(Politystand2014 ~ CBINDEX * x_group, data = dat)
+broom::tidy(mod_int)
+
+ggplot(dat, aes(CBINDEX, Politystand2014, color=x_group)) +
+  geom_point(alpha=0.7) +
+  geom_smooth(method="lm", se=FALSE) +
+  labs(title="Democracy vs Governance by group",
+       x="Governance index (z)", y="Democracy score (y)")
+```
 
 # References
